@@ -1,5 +1,5 @@
 # Specify the base image (check for the latest tag and specify if preferred)
-FROM mcr.microsoft.com/playwright:v1.51.1-noble
+FROM mcr.microsoft.com/playwright:v1.54.1-noble
 
 # Set working directory (optional)
 WORKDIR /app
