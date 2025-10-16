@@ -73,3 +73,38 @@ This project provides a Docker Compose environment to run the `@playwright/mcp` 
 ```bash
 docker-compose down
 ```
+
+## Deployment on Railway
+
+This Docker image is designed to work with Railway and supports both IPv4 and IPv6 connections.
+
+### Setup on Railway
+
+1. **Push the image to GitHub Container Registry:**
+   ```bash
+   # The GitHub Actions workflow will automatically build and push the image
+   git push origin main
+   ```
+
+2. **Deploy on Railway:**
+   - Create a new project on Railway
+   - Choose "Deploy from Docker Image"
+   - Use the image: `ghcr.io/labeldock/playwright-mcp-docker:latest`
+   - Set environment variables:
+     - `HEADLESS=true`
+     - `MCP_PORT=8931` (or use Railway's `PORT` variable)
+     - `MCP_HOST=::` (already set as default for IPv6 support)
+     - `ISOLATED=true`
+     - `NOSANDBOX=true`
+
+3. **Access your service:**
+   - Railway will provide a public URL
+   - Connect to SSE endpoint: `https://your-railway-app.railway.app/sse`
+
+### IPv6 Support
+
+By default, the server binds to `::` which accepts connections from both IPv4 and IPv6. You can override this by setting the `MCP_HOST` environment variable:
+- `MCP_HOST=::` - IPv6 all interfaces (also accepts IPv4) - **Default**
+- `MCP_HOST=0.0.0.0` - IPv4 only
+- `MCP_HOST=::1` - IPv6 localhost only
+- `MCP_HOST=127.0.0.1` - IPv4 localhost only

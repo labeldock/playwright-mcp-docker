@@ -5,6 +5,8 @@ set -e
 MCP_ARGS=""
 # Use MCP_PORT from environment or default to 8931
 INTERNAL_PORT=${MCP_PORT:-8931}
+# Use MCP_HOST from environment or default to :: (IPv6 all interfaces, also accepts IPv4)
+MCP_HOST=${MCP_HOST:-::}
 
 # Add --headless if HEADLESS environment variable is true
 if [ "$HEADLESS" = "true" ]; then
@@ -15,6 +17,12 @@ fi
 # This allows SSE connection even when HEADLESS=true
 if [ -n "$MCP_PORT" ]; then
   MCP_ARGS="$MCP_ARGS --port $INTERNAL_PORT"
+fi
+
+# Add --host if MCP_HOST is set (for binding to specific interface)
+# Default is :: to accept connections from all interfaces (IPv4 and IPv6)
+if [ -n "$MCP_HOST" ]; then
+  MCP_ARGS="$MCP_ARGS --host $MCP_HOST"
 fi
 
 # Add --isolated if ISOLATED environment variable is true
