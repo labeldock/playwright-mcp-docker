@@ -40,9 +40,38 @@ if [ -n "$VIEWPORT_SIZE" ]; then
   MCP_ARGS="$MCP_ARGS --viewport-size $VIEWPORT_SIZE"
 fi
 
-echo "Starting @playwright/mcp with args: $MCP_ARGS $@"
-echo "Internal MCP port (if using SSE): $INTERNAL_PORT"
-echo -n "@playwright/mcp " && npx -y @playwright/mcp --version
+echo "=========================================="
+echo "🎭 Playwright MCP Server"
+echo "=========================================="
+echo "Version: $(npx --silent -y @playwright/mcp --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' || echo '0.0.32')"
+echo "Host: $MCP_HOST"
+echo "Port: $INTERNAL_PORT"
+echo ""
+
+# Format URL based on host
+if [ "$MCP_HOST" = "::" ] || [ "$MCP_HOST" = "0.0.0.0" ]; then
+  echo "🌐 Server URL (SSE): http://localhost:$INTERNAL_PORT/sse"
+  echo "   Alternative:      http://127.0.0.1:$INTERNAL_PORT/sse"
+  if [ "$MCP_HOST" = "::" ]; then
+    echo "   IPv6:             http://[::1]:$INTERNAL_PORT/sse"
+  fi
+else
+  # Show specific host
+  if echo "$MCP_HOST" | grep -q ":"; then
+    # IPv6 address
+    echo "🌐 Server URL (SSE): http://[$MCP_HOST]:$INTERNAL_PORT/sse"
+  else
+    # IPv4 address or hostname
+    echo "🌐 Server URL (SSE): http://$MCP_HOST:$INTERNAL_PORT/sse"
+  fi
+fi
+
+echo ""
+echo "Arguments: $MCP_ARGS"
+echo "=========================================="
+echo ""
 
 # Execute @playwright/mcp using npx, passing arguments ($@)
-exec npx @playwright/mcp $MCP_ARGS "$@"
+# Suppress npm update notices
+export NPM_CONFIG_UPDATE_NOTIFIER=false
+exec npx --silent @playwright/mcp $MCP_ARGS "$@"
