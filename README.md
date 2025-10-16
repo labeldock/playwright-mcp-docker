@@ -24,6 +24,8 @@ This project provides a Docker Compose environment to run the `@playwright/mcp` 
 3.  **Configure `.env`:**
     Edit the `.env` file to adjust settings according to your environment and preferences:
     *   `MCP_HOST_PORT`: The port on the host machine that the MCP server will be accessible through (default: `8931`).
+    *   `MCP_HOST`: The host/IP address to bind the server (default: `::` for IPv6 all interfaces). Set to `0.0.0.0` for IPv4 only, or specify a specific IP address.
+    *   `MCP_MODE`: Connection mode - `http` (default, StreamableHTTP for LobeChat/Claude Desktop) or `sse` (Server-Sent Events for VSCode/Cline).
     *   `HEADLESS`: Set to `true` for headless mode (no browser GUI) or `false` for headed mode (requires GUI setup). Default is `true`.
     *   **(Headed Mode Only)** `DISPLAY`, `WAYLAND_DISPLAY`, `XDG_RUNTIME_DIR`: Environment variables needed for GUI applications in Linux environments (especially WSLg). Defaults are provided.
     *   **(Headed Mode Only)** `X11_HOST_PATH`, `WSLG_HOST_PATH`: Host paths for X11 and WSLg sockets/directories. Defaults are provided. Adjust if your system configuration differs. For Windows Docker accessing WSL paths, use the `\\wsl.localhost\DistroName\...` format (see `.env.sample`).
@@ -36,16 +38,31 @@ This project provides a Docker Compose environment to run the `@playwright/mcp` 
     ```
     The `--build` flag is only needed the first time or when `Dockerfile` changes. The `-d` flag runs the container in detached mode (in the background).
 
-2.  **Configure MCP Client (e.g., VSCode/Cline):**
-    *   Add or enable an MCP server named `playwright_sse` (or any name you prefer).
-    *   Set the connection type to **SSE**.
-    *   Set the URL to `http://localhost:<MCP_HOST_PORT>/sse` (replace `<MCP_HOST_PORT>` with the value from your `.env` file, e.g., `http://localhost:8931/sse`).
-    *   Example client configuration (filename depends on the client):
+2.  **Configure MCP Client:**
+    
+    **For LobeChat / Claude Desktop (StreamableHTTP mode - default):**
+    *   Set `MCP_MODE=http` in `.env` (this is the default)
+    *   Use URL: `http://localhost:8931/mcp`
+    *   Example configuration:
       ```json
       {
         "mcpServers": {
-          "playwright_sse": { // Server name is arbitrary
-            "url": "http://localhost:8931/sse" // Match the port number in .env
+          "playwright": {
+            "url": "http://localhost:8931/mcp"
+          }
+        }
+      }
+      ```
+    
+    **For VSCode/Cline (SSE mode):**
+    *   Set `MCP_MODE=sse` in `.env`
+    *   Use URL: `http://localhost:8931/sse`
+    *   Example configuration:
+      ```json
+      {
+        "mcpServers": {
+          "playwright_sse": {
+            "url": "http://localhost:8931/sse"
           }
         }
       }
@@ -74,37 +91,28 @@ This project provides a Docker Compose environment to run the `@playwright/mcp` 
 docker-compose down
 ```
 
-## Deployment on Railway
-
-This Docker image is designed to work with Railway and supports both IPv4 and IPv6 connections.
-
-### Setup on Railway
-
-1. **Push the image to GitHub Container Registry:**
-   ```bash
-   # The GitHub Actions workflow will automatically build and push the image
-   git push origin main
-   ```
-
-2. **Deploy on Railway:**
-   - Create a new project on Railway
-   - Choose "Deploy from Docker Image"
-   - Use the image: `ghcr.io/labeldock/playwright-mcp-docker:latest`
-   - Set environment variables:
-     - `HEADLESS=true`
-     - `MCP_PORT=8931` (or use Railway's `PORT` variable)
-     - `MCP_HOST=::` (already set as default for IPv6 support)
-     - `ISOLATED=true`
-     - `NOSANDBOX=true`
-
-3. **Access your service:**
-   - Railway will provide a public URL
-   - Connect to SSE endpoint: `https://your-railway-app.railway.app/sse`
+## Network Configuration
 
 ### IPv6 Support
 
 By default, the server binds to `::` which accepts connections from both IPv4 and IPv6. You can override this by setting the `MCP_HOST` environment variable:
+
 - `MCP_HOST=::` - IPv6 all interfaces (also accepts IPv4) - **Default**
 - `MCP_HOST=0.0.0.0` - IPv4 only
 - `MCP_HOST=::1` - IPv6 localhost only
 - `MCP_HOST=127.0.0.1` - IPv4 localhost only
+
+### Connection Modes
+
+The server supports two connection modes via the `MCP_MODE` environment variable:
+
+1. **StreamableHTTP Mode (`http`)** - Default
+   - Uses `/mcp` endpoint
+   - Compatible with LobeChat, Claude Desktop, and other MCP clients
+   - Recommended for most use cases
+
+2. **SSE Mode (`sse`)**
+   - Uses `/sse` endpoint
+   - Compatible with VSCode extensions like Cline
+   - Server-Sent Events protocol
+

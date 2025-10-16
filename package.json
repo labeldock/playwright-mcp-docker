@@ -1,0 +1,16 @@
+{
+  "name": "playwright-mcp-docker",
+  "version": "1.0.0",
+  "description": "Playwright MCP Server with StreamableHTTP support",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "@playwright/mcp": "^0.0.32"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

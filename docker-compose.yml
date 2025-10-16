@@ -6,11 +6,13 @@ services:
     env_file:
       - .env
     environment:
-      # Default is headed mode (SSE connection) unless overridden by .env
+      # Default is headed mode unless overridden by .env
       - HEADLESS=${HEADLESS:-false}
-      # Internal container port (used by entrypoint.sh)
+      # MCP connection mode: http (default, StreamableHTTP) or sse (Server-Sent Events)
+      - MCP_MODE=${MCP_MODE:-http}
+      # Internal container port
       - MCP_PORT=${MCP_HOST_PORT:-8931}
-      # Host/IP to bind (:: for IPv6 all interfaces, also accepts IPv4)
+      # Host/IP to bind (:: for IPv6 all interfaces)
       - MCP_HOST=${MCP_HOST:-::}
       # --- Settings for headed mode (assuming WSL2 + WSLg) ---
       # Read from .env file (with defaults)
