@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamable-http.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { spawn } from "child_process";
 import http from "http";
 
@@ -40,8 +41,8 @@ console.log(`Playwright args: ${playwrightArgs.join(" ")}`);
 console.log("");
 
 if (MODE === "sse") {
-  // SSE mode - run playwright with --port and --host
-  console.log("🌐 SSE Mode");
+  // SSE mode - run playwright with --port and --host directly
+  console.log("🌐 SSE Mode (Native Playwright)");
   console.log(`   URL: http://${HOST === "::" ? "localhost" : HOST}:${PORT}/sse`);
   console.log("==========================================");
   console.log("");
@@ -64,97 +65,145 @@ if (MODE === "sse") {
     process.exit(code || 0);
   });
 } else {
-  // StreamableHTTP mode - run playwright via stdio and wrap with MCP SDK
-  console.log("📡 StreamableHTTP Mode");
+  // StreamableHTTP mode - create proxy server following MCP SDK patterns
+  console.log("📡 StreamableHTTP Mode (Stateless)");
   console.log(`   URL: http://${HOST === "::" ? "localhost" : HOST}:${PORT}/mcp`);
   console.log("   Compatible with: LobeChat, Claude Desktop, etc.");
   console.log("==========================================");
   console.log("");
   
-  // Start playwright process with stdio
-  const playwright = spawn("npx", ["--silent", "@playwright/mcp", ...playwrightArgs], {
-    stdio: ["pipe", "pipe", "inherit"],
+  // Create a client to connect to playwright via stdio
+  const playwrightClient = new Client({
+    name: "playwright-http-bridge",
+    version: "1.0.0"
+  }, {
+    capabilities: {}
+  });
+  
+  const stdioTransport = new StdioClientTransport({
+    command: "npx",
+    args: ["--silent", "@playwright/mcp", ...playwrightArgs],
     env: {
       ...process.env,
       NPM_CONFIG_UPDATE_NOTIFIER: "false"
     }
   });
   
-  playwright.on("error", (err) => {
-    console.error("Failed to start playwright:", err);
-    process.exit(1);
+  // Connect the client to playwright
+  await playwrightClient.connect(stdioTransport);
+  console.log("✅ Connected to Playwright MCP via stdio");
+  
+  // Get playwright's capabilities
+  const playwrightInfo = await playwrightClient.getServerVersion();
+  console.log(`   Playwright MCP: ${playwrightInfo.name} v${playwrightInfo.version}`);
+  
+  // Create an MCP proxy server that forwards requests to playwright client
+  const proxyServer = new McpServer({
+    name: playwrightInfo.name || "playwright-mcp",
+    version: playwrightInfo.version || "1.0.0"
+  }, {
+    capabilities: playwrightInfo.capabilities || {}
   });
   
-  // Create MCP Server that proxies to playwright
-  const server = new Server(
-    {
-      name: "playwright-mcp",
-      version: "0.0.32",
-    },
-    {
-      capabilities: {
-        tools: {},
-        prompts: {},
-        resources: {},
+  // List and register all tools from playwright
+  const tools = await playwrightClient.listTools();
+  console.log(`   Registered ${tools.tools.length} tools from Playwright`);
+  
+  for (const tool of tools.tools) {
+    proxyServer.registerTool(
+      tool.name,
+      {
+        title: tool.title || tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema || {}
       },
-    }
-  );
-  
-  // Connect to playwright via stdio
-  const stdioTransport = new StdioServerTransport();
-  
-  // Create HTTP server with StreamableHTTP transport
-  const httpServer = http.createServer(async (req, res) => {
-    if (req.url === "/mcp" && req.method === "POST") {
-      const transport = new StreamableHTTPServerTransport({
-        req,
-        res,
-      });
-      
-      // Forward messages between HTTP client and playwright stdio
-      try {
-        // Read from HTTP request
-        transport.onMessage((message) => {
-          // Forward to playwright stdin
-          if (playwright.stdin) {
-            playwright.stdin.write(JSON.stringify(message) + "\n");
-          }
+      async (args) => {
+        // Forward tool calls to playwright client
+        const result = await playwrightClient.callTool({
+          name: tool.name,
+          arguments: args
         });
-        
-        // Read from playwright stdout and forward to HTTP response
-        playwright.stdout.on("data", (data) => {
-          try {
-            const messages = data.toString().split("\n").filter(Boolean);
-            messages.forEach((msg) => {
-              try {
-                const parsed = JSON.parse(msg);
-                transport.send(parsed);
-              } catch (e) {
-                // Ignore parse errors for non-JSON output
-              }
-            });
-          } catch (e) {
-            console.error("Error processing playwright output:", e);
-          }
-        });
-        
-        await transport.start();
-      } catch (error) {
-        console.error("Transport error:", error);
-        res.writeHead(500);
-        res.end("Internal Server Error");
+        return result;
       }
-    } else if (req.url === "/health") {
+    );
+  }
+  
+  // Create HTTP server (using plain Node.js http, as recommended)
+  const httpServer = http.createServer(async (req, res) => {
+    // Enable CORS
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    
+    if (req.method === "OPTIONS") {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+    
+    // Health check
+    if (req.url === "/health") {
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ status: "ok", mode: MODE }));
+      return;
+    }
+    
+    // MCP endpoint
+    if (req.url === "/mcp" && req.method === "POST") {
+      // Read body
+      let body = "";
+      for await (const chunk of req) {
+        body += chunk;
+      }
+      
+      let parsedBody;
+      try {
+        parsedBody = JSON.parse(body);
+      } catch (error) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          jsonrpc: "2.0",
+          error: { code: -32700, message: "Parse error" },
+          id: null
+        }));
+        return;
+      }
+      
+      try {
+        // Create stateless transport (new for each request, as recommended)
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined, // Stateless
+          enableJsonResponse: true // JSON response instead of SSE
+        });
+        
+        res.on("close", () => {
+          transport.close();
+        });
+        
+        // Connect proxy server to transport
+        await proxyServer.connect(transport);
+        
+        // Handle the request
+        await transport.handleRequest(req, res, parsedBody);
+      } catch (error) {
+        console.error("Error handling MCP request:", error);
+        if (!res.headersSent) {
+          res.writeHead(500, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            jsonrpc: "2.0",
+            error: { code: -32603, message: "Internal server error" },
+            id: null
+          }));
+        }
+      }
     } else {
-      res.writeHead(404);
+      res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Not Found");
     }
   });
   
   httpServer.listen(PORT, HOST, () => {
-    console.log(`✅ Server listening on ${HOST}:${PORT}`);
+    console.log(`✅ HTTP Server listening on ${HOST}:${PORT}`);
     if (HOST === "::" || HOST === "0.0.0.0") {
       console.log(`   http://localhost:${PORT}/mcp`);
       console.log(`   http://127.0.0.1:${PORT}/mcp`);
@@ -162,26 +211,18 @@ if (MODE === "sse") {
         console.log(`   http://[::1]:${PORT}/mcp`);
       }
     }
+    console.log("");
+    console.log("✅ Ready to accept MCP requests");
   });
   
-  // Cleanup on exit
-  process.on("SIGTERM", () => {
+  // Cleanup
+  const cleanup = () => {
     console.log("\nShutting down...");
-    playwright.kill();
+    playwrightClient.close().catch(console.error);
     httpServer.close();
     process.exit(0);
-  });
+  };
   
-  process.on("SIGINT", () => {
-    console.log("\nShutting down...");
-    playwright.kill();
-    httpServer.close();
-    process.exit(0);
-  });
-  
-  playwright.on("exit", (code) => {
-    console.log(`Playwright process exited with code ${code}`);
-    httpServer.close();
-    process.exit(code || 0);
-  });
+  process.on("SIGTERM", cleanup);
+  process.on("SIGINT", cleanup);
 }
